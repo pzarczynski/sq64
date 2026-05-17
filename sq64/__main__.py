@@ -1,4 +1,4 @@
-from sq64.gui import GUI
+from sq64.app import App
 
 if __name__ == "__main__":
-    GUI().loop()
+    App().run()

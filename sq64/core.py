@@ -1,27 +1,30 @@
 from dataclasses import dataclass
 from enum import IntEnum, IntFlag
 from functools import reduce
-from operator import or_
+from operator import or_, xor
+
+from sq64.tables import (
+    PIECE_VALUES,
+    PST_TABLES,
+    ZOBRIST_CASTLING,
+    ZOBRIST_COLOR,
+    ZOBRIST_EP,
+    ZOBRIST_PIECES,
+)
 
 Color = int   # 0 = BLACK, 1 = WHITE
 COLORS = [BLACK, WHITE] = range(2)
 
-Square = int  # square in 0x88 representation
-def sq_file(sq: Square)     -> int:    return sq & 7
-def sq_rank(sq: Square)     -> int:    return sq >> 4
-def sq_to_idx(sq: Square)   -> int:    return (sq & 7) | ((sq >> 4) << 3)
-def sq_to_str(sq: Square)   -> str:    return f"{chr(sq_file(sq) + ord('a'))}{sq_rank(sq) + 1}"
-def sq_from_str(s: str)     -> Square: return ((int(s[1]) - 1) << 4) | (ord(s[0]) - ord('a'))
-def sq_from_idx(i: int)     -> Square: return (i & 7) | ((i >> 3) << 4)
-def sq_mirror(sq: Square)   -> Square: return sq ^ 0x70
-def sq_make(f: int, r: int) -> Square: return (r << 4) | f
-
-KING_TO_ROOK_SQ = {
-    0x02: (0x00, 0x03),
-    0x06: (0x07, 0x05), 
-    0x76: (0x77, 0x75),
-    0x72: (0x70, 0x73)
-}
+SquareInt = int  # square in 0x88 representation
+def sq_file(sq: SquareInt)   -> int: return sq & 7
+def sq_rank(sq: SquareInt)   -> int: return sq >> 4
+def sq_to_idx(sq: SquareInt) -> int: return (sq & 7) | ((sq >> 4) << 3)
+def sq_to_str(sq: SquareInt) -> str: return f"{chr(sq_file(sq) + ord('a'))}{sq_rank(sq) + 1}"
+def sq_mirror(sq: SquareInt) -> SquareInt: return sq ^ 0x70
+def sq_from_str(s: str)      -> SquareInt: return ((int(s[1]) - 1) << 4) | (ord(s[0]) - ord('a'))
+def sq_from_idx(i: int)      -> SquareInt: return (i & 7) | ((i >> 3) << 4)
+def sq_make(f: int, r: int)  -> SquareInt: return (r << 4) | f
+def sq_to_pst_idx(sq: SquareInt, c: Color) -> int: return ((sq ^ 0x70) if c else sq)
 
 PieceType = int
 PieceInt  = int
@@ -47,7 +50,7 @@ DELTAS = (
 )
     
 class Piece(IntEnum):
-    NONE = 0
+    NONE = PIECE_NONE
 
     BLACK_PAWN   = piece_make(BLACK, PAWN)
     BLACK_KNIGHT = piece_make(BLACK, KNIGHT)
@@ -72,7 +75,7 @@ class Piece(IntEnum):
     @property
     def type_name(self) -> str: return PIECE_NAMES[self.type]
     
-    def can_promote(self, to: Square) -> bool:
+    def can_promote(self, to: SquareInt) -> bool:
         return self.type == PAWN and (sq_rank(to) == 0 or sq_rank(to) == 7)
     
     @classmethod
@@ -87,11 +90,21 @@ class Piece(IntEnum):
     def __str__(self) -> str:
         c = PIECE_CHARS[self.type]
         return c.upper() if self.color else c.lower()
+    
+    @staticmethod
+    def promotions(color: Color) -> list["Piece"]:
+        return [Piece.make(color, pt) for pt in PROMOTIONS]
+
+def piece_val(sq: SquareInt, p: PieceInt) -> int:
+    if p == 0: return 0
+    val = PIECE_VALUES[p >> 1]
+    val += PST_TABLES[p >> 1][sq_to_pst_idx(sq, p & 1)]
+    return val if (p & 1) else -val
 
 @dataclass(slots=True)
 class Move:        
-    frm: Square
-    to: Square
+    frm: SquareInt
+    to: SquareInt
     promotion: PieceType = PIECE_NONE
     
     def is_castling(self, board: "Board") -> bool:
@@ -125,7 +138,6 @@ class Move:
     def to_int(self) -> int:
         return (self.frm << 10) | (self.to << 3) | self.promotion
     
-
 class CastlingRights(IntFlag):
     NONE            = 0
     WHITE_KINGSIDE  = 1 << 0
@@ -153,38 +165,56 @@ class CastlingRights(IntFlag):
         if self & self.BLACK_QUEENSIDE: s += "q"
         return s
 
-CASTLING_SPOILERS_SQ = {0, 4, 7, 112, 116, 119}  # a1, e1, h1, a8, e8, h8
-CASTLING_SPOILERS = {
-    0:   ~CastlingRights.WHITE_QUEENSIDE, 
-    7:   ~CastlingRights.WHITE_KINGSIDE, 
-    4:   ~CastlingRights.WHITE_BOTH,    
-    112: ~CastlingRights.BLACK_QUEENSIDE,  
-    119: ~CastlingRights.BLACK_KINGSIDE, 
-    116: ~CastlingRights.BLACK_BOTH
-}
+CASTLING_SPOILERS_SQ = {0, 4, 7, 112, 116, 119}  # A1, E1, H1, A8, E8, H8
+CASTLING_SPOILERS = bytearray(128)
+CASTLING_SPOILERS[0]   = ~CastlingRights.WHITE_QUEENSIDE
+CASTLING_SPOILERS[7]   = ~CastlingRights.WHITE_KINGSIDE
+CASTLING_SPOILERS[4]   = ~CastlingRights.WHITE_BOTH
+CASTLING_SPOILERS[112] = ~CastlingRights.BLACK_QUEENSIDE
+CASTLING_SPOILERS[119] = ~CastlingRights.BLACK_KINGSIDE
+CASTLING_SPOILERS[116] = ~CastlingRights.BLACK_BOTH
 
+class Square(int):    
+    @classmethod
+    def make(cls, file: int, rank: int) -> "Square":
+        return cls(sq_make(file, rank))
+    
+    @classmethod
+    def from_idx(cls, idx: int) -> "Square":
+        return cls(sq_from_idx(idx))
+    
+    def to_idx(self) -> int:
+        return sq_to_idx(self)
+    
+    def is_valid(self) -> bool:
+        return not (self & 0x88)
+
+    def __str__(self) -> str:
+        return sq_to_str(self)
 
 @dataclass(slots=True)
 class State:
     move: Move
     captured_val: int
-    ep_square: Square | None
+    ep_square: SquareInt | None
     castling_rights: CastlingRights
     is_en_passant: bool
-
+    score: int 
+    hash: int
 
 class Board:
     _board: bytearray
-    king_squares: list[Square]
-    ep_square: Square | None
+    king_squares: list[SquareInt]
+    ep_square: SquareInt | None
     castling_rights: CastlingRights
     color: Color
+    score: int
 
     def __init__(
         self, 
         board_fen: str, 
         castling_rights: CastlingRights, 
-        ep_square: Square | None, 
+        ep_square: SquareInt | None, 
         color: Color
     ) -> None:
         self._board = bytearray(128)
@@ -209,6 +239,30 @@ class Board:
         self.castling_rights = castling_rights
         self.ep_square = ep_square
         self.color = color
+        self.score = self.evaluate()
+        self.hash = self.compute_hash()
+        
+    def compute_hash(self) -> int:
+        return ((ZOBRIST_COLOR * self.color) ^ ZOBRIST_CASTLING[self.castling_rights] ^ 
+                (ZOBRIST_EP[self.ep_square] if self.ep_square is not None else 0) ^ 
+                reduce(xor, (ZOBRIST_PIECES[i][p] for i, p in self if not (i & 0x88) and p), 0))
+        
+    def push_null(self) -> tuple[SquareInt | None, int]: 
+        old_ep = self.ep_square
+        old_hash = self.hash
+        
+        if old_ep is not None:
+            self.hash ^= ZOBRIST_EP[old_ep]
+            self.ep_square = None
+            
+        self.color ^= 1
+        self.hash ^= ZOBRIST_COLOR
+        return (old_ep, old_hash)
+    
+    def unpush_null(self, old_ep: SquareInt | None, old_hash: int) -> None:
+        self.color ^= 1
+        self.ep_square = old_ep
+        self.hash = old_hash
 
     def push(self, move: Move) -> State:
         frm   = move.frm
@@ -216,8 +270,19 @@ class Board:
         promo = move.promotion
         board = self._board
         
-        moving_val   = board[frm]
+        old_score = self.score
+        old_hash  = self.hash
+        old_ep    = self.ep_square
+        old_cr    = self.castling_rights
+        
+        moving_val = board[frm]
+        self.score -= piece_val(move.frm, moving_val)
+        self.hash  ^= ZOBRIST_PIECES[frm][moving_val]
+        
         captured_val = board[to]
+        if to != old_ep: 
+            self.score -= piece_val(to, captured_val)
+            self.hash ^= ZOBRIST_PIECES[to][captured_val]
         
         pt  = moving_val >> 1
         col = moving_val & 1
@@ -228,34 +293,42 @@ class Board:
         board[frm] = 0
         
         if pt == PAWN:
-            if to == self.ep_square:
+            if to == old_ep:
                 is_ep = True
-                ep_capture_sq = to - 16 if col else to + 16
-                captured_val = board[ep_capture_sq]
-                board[ep_capture_sq] = 0
+                ep_sq = to - 16 if col else to + 16
+                captured_val = board[ep_sq]
+                board[ep_sq] = 0
+                self.score -= piece_val(ep_sq, captured_val)
+                self.hash ^= ZOBRIST_PIECES[ep_sq][captured_val]
+        
+        elif pt == KING:
+            self.king_squares[self.color] = move.to
+            if abs(to - frm) == 2:
+                rook_frm, rook_to = (frm + 3, frm + 1) if to > frm else (frm - 4, frm - 1)
+                rook_val = board[rook_frm]
+                self.score += piece_val(rook_to, rook_val) - piece_val(rook_frm, rook_val)
+                self.hash ^= ZOBRIST_PIECES[rook_to][rook_val] ^ ZOBRIST_PIECES[rook_to][rook_val]
+                
+                board[rook_to]  = board[rook_frm]
+                board[rook_frm] = 0
                 
         if promo:
             board[to] = piece_make(col, promo)
         
-        if pt == KING:
-            self.king_squares[self.color] = move.to
-            if abs(to - frm) == 2:
-                if to > frm:
-                    board[frm + 1] = board[frm + 3]
-                    board[frm + 3] = 0
-                else:
-                    board[frm - 1] = board[frm - 4]
-                    board[frm - 4] = 0
+        self.score += piece_val(to, board[to])
+        self.hash ^= ZOBRIST_PIECES[to][board[to]]
         
-        state = State(move, captured_val, self.ep_square, self.castling_rights, is_ep)
         self.ep_square = (frm + to) >> 1 if (pt == PAWN and abs(to - frm) == 32) else None
+        if self.ep_square is not None: self.hash ^= ZOBRIST_EP[self.ep_square]
             
         if self.castling_rights:
             if move.frm in CASTLING_SPOILERS_SQ: self.castling_rights &= CASTLING_SPOILERS[move.frm]
             if move.to  in CASTLING_SPOILERS_SQ: self.castling_rights &= CASTLING_SPOILERS[move.to]
+        
+        self.hash ^= ZOBRIST_CASTLING[self.castling_rights]
 
         self.color ^= 1
-        return state
+        return State(move, captured_val, old_ep, old_cr, is_ep, old_score, old_hash)
     
     def unpush(self, state: State) -> State:
         frm   = state.move.frm
@@ -265,12 +338,12 @@ class Board:
         
         self.ep_square = state.ep_square
         self.castling_rights = state.castling_rights
+        self.score = state.score
+        self.hash = state.hash
         
         moving_val = board[to]
-
-        if promo:
-            moving_val = (moving_val & 1) | (PAWN << 1)
-            
+        if promo: moving_val = piece_make(moving_val & 1, PAWN)
+        
         board[frm] = moving_val
         
         if state.is_en_passant:
@@ -280,23 +353,17 @@ class Board:
         else:
             self._board[to] = state.captured_val
             
-        king_move = (moving_val >> 1) == KING
-        
-        if king_move:      
+        if moving_val >> 1 == KING:      
             self.king_squares[self.color ^ 1] = state.move.frm      
             if abs(to - frm) == 2:
-                if to > frm:
-                    board[frm + 3] = board[frm + 1]
-                    board[frm + 1] = 0
-                else:
-                    board[frm - 4] = board[frm - 1]
-                    board[frm - 1] = 0
+                rook_frm, rook_to = (frm + 3, frm + 1) if to > frm else (frm - 4, frm - 1)
+                board[rook_frm] = board[rook_to]
+                board[rook_to] = 0
         
         self.color ^= 1 
         return state
                
-    # @profile    
-    def _is_square_attacked(self, sq: Square, attacker_side: Color) -> bool:        
+    def _is_square_attacked(self, sq: SquareInt, attacker_side: Color) -> bool:        
         board = self._board
         
         if attacker_side:
@@ -340,8 +407,34 @@ class Board:
                 curr_sq += d
 
         return False
+    
+    def evaluate(self) -> int:
+        return sum(piece_val(sq, piece) for sq, piece in self)
+    
+    def piece_at(self, sq: SquareInt | Square):
+        return Piece(self._board[sq])
+    
+    def is_en_passant(self, move: Move) -> bool:
+        moving_piece = self._board[move.frm]
+        return (moving_piece >> 1) == PAWN and move.to == self.ep_square
+    
+    def is_capture(self, move: Move) -> bool:
+        return self._board[move.to] != Piece.NONE or self.is_en_passant(move)
+    
+    def is_promotion(self, move: Move) -> bool:
+        return move.promotion != Piece.NONE
+
+    def is_check(self, move: Move | None = None, side: Color | None = None) -> bool:
+        side = side or self.color
+        if move:
+            state = self.push(move)
+            is_check = self._is_square_attacked(self.king_squares[side], side ^ 1)
+            self.unpush(state)
+        else:
+            is_check = self._is_square_attacked(self.king_squares[side], side ^ 1)
+        return is_check
         
-    def pseudo_legal_moves(self) -> list[Move]:
+    def _pseudo_legal_moves(self) -> list[Move]:
         moves = []
         board = self._board
         ep_sq = self.ep_square if self.ep_square is not None else -1
@@ -428,7 +521,7 @@ class Board:
         board = self._board
         moves = []
         
-        for move in self.pseudo_legal_moves():
+        for move in self._pseudo_legal_moves():
             moving_val = board[move.frm]
             pt = moving_val >> 1
             
@@ -439,17 +532,76 @@ class Board:
                 if self._is_square_attacked(passed_sq, enemy):
                     continue
             
-            state = self.push(move)
-            is_in_check = self._is_square_attacked(self.king_squares[side], enemy)
-            self.unpush(state)
-            
-            if not is_in_check:
+            if not self.is_check(move, side): 
                 moves.append(move)
                 
         return moves
+    
+    def _pseudo_legal_quiescence(self) -> list[Move]:
+        moves = []
+        board = self._board
+        ep_sq = self.ep_square if self.ep_square is not None else -1
+
+        if self.color:
+            pawn_dir   = 16
+            promo_rank = 7
+        else:
+            pawn_dir   = -16
+            promo_rank = 0
+
+        for frm, val in (
+            (frm, val) for frm, val
+            in enumerate(board) 
+            if val and (val & 1) == self.color
+        ):
+            pt = val >> 1
+            
+            if pt == PAWN:
+                one = frm + pawn_dir
+                if not (one & 0x88) and board[one] == PIECE_NONE:
+                    rank = one >> 4
+                    if rank == promo_rank:
+                        for promo_pt in PROMOTIONS:
+                            moves.append(Move(frm, one, promo_pt))
+                
+                for offset in (pawn_dir - 1, pawn_dir + 1):
+                    to = frm + offset
+                    if not (to & 0x88):
+                        target_val = board[to]
+                        if (target_val != 0 and (target_val & 1) != self.color) or to == ep_sq:
+                            if (to >> 4) == promo_rank:
+                                for promo_pt in PROMOTIONS:
+                                    moves.append(Move(frm, to, promo_pt))
+                            else:
+                                moves.append(Move(frm, to))
+
+            elif pt in SLIDING_PIECES:
+                for d in DELTAS[pt]:
+                    to = frm + d
+                    while not (to & 0x88):
+                        target_val = board[to]
+                        if target_val == 0:
+                            to += d
+                        else:
+                            if (target_val & 1) != self.color: 
+                                moves.append(Move(frm, to))
+                            break 
+
+            elif pt in STEPPING_PIECES:
+                for d in DELTAS[pt]:
+                    to = frm + d
+                    if not (to & 0x88):
+                        target_val = board[to]
+                        if target_val != 0 and (target_val & 1) != self.color:
+                            moves.append(Move(frm, to))
+
+        return moves
+    
+    def legal_quiescence(self) -> list[Move]:
+        return [m for m in self._pseudo_legal_quiescence() if not self.is_check(m, self.color)]
                 
     def __iter__(self):
-        yield from ((sq, Piece(val)) for sq, val in enumerate(self._board) if not (sq) & 0x88)
+        yield from ((i, p) for i, p in enumerate(self._board) if not (i & 0x88))
     
     def fen(self) -> str:
         rows = []
@@ -477,3 +629,6 @@ class Board:
     
     def __str__(self) -> str:
         return self.fen()
+    
+    def __hash__(self) -> int:
+        return self.hash
