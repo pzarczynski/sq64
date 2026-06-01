@@ -1,164 +1,227 @@
-import time
+import logging
+from collections import namedtuple
+from collections.abc import Iterator
+from enum import IntEnum
+from threading import Event
+from time import perf_counter
 
-from sq64.core import Board, Move
+from sq64.core import Move
+from sq64.position import Position
 
-transposition_table = {}
+MATE_VALUE = 32000
+MATE_BOUND = 30000
 
-TT_EXACT = 0
-TT_LOWERBOUND = 1
-TT_UPPERBOUND = 2
-INF = 999999
+Bound = IntEnum("Bound", "EXACT LOWER UPPER")
+Entry = namedtuple("Entry", "depth score flag move")
+Info = namedtuple("Info", "depth score")
+SearchResult = namedtuple("SearchResult", "score pv")
 
-def move_priority(board: Board, move: Move, prev_best: Move | None = None) -> int:
-    if move == prev_best:       return 1000000
-    if move.is_capture(board):  return 10000
-    if move.is_promotion():     return 9000
-    return 0
+class AbortSearch(Exception): ...
 
-class SearchAborted(Exception):
-    pass
+class Engine:
+    tt: dict[int, Entry]
+    killers: list[Move | None]
+    nodes: int
+    stop: Event
 
-def quiescence_search(board: Board, alpha: float, beta: float, color_sign: int, ctx: dict) -> float:
-    ctx['nodes'] += 1
-    if ctx['nodes'] & 1023 == 0 and time.time() - ctx['start_time'] > ctx['time_limit']:
-        raise SearchAborted()
-    
-    stand_pat = color_sign * board.score
-    if stand_pat >= beta: return beta
-    if alpha < stand_pat: alpha = stand_pat
-            
-    for move in board.legal_quiescence():
-        state = board.push(move)
-        score = -quiescence_search(board, -beta, -alpha, -color_sign, ctx)
-        board.unpush(state)
-        
-        if score >= beta: return beta
-        if score > alpha: alpha = score
-            
-    return alpha
+    def __init__(self) -> None:
+        self.tt = {}
+        self.killers = [None] * 256
 
-def negamax(board: Board, depth: int, alpha: float, beta: float, color_sign: int, ctx: dict, is_null_move: bool = False) -> float:
-    ctx['nodes'] += 1
-    if ctx['nodes'] & 1023 == 0 and time.time() - ctx['start_time'] > ctx['time_limit']:
-        raise SearchAborted()
-    
-    board_hash = hash(board)
-    alpha_orig = alpha
-    
-    tt_entry = transposition_table.get(board_hash)
-    tt_move = None
-    
-    if tt_entry is not None:
-        tt_move = tt_entry.get('best_move')
-        if tt_entry['depth'] >= depth:
-            tt_flag = tt_entry['flag']
-            tt_score = tt_entry['score']
-            
-            if tt_flag == TT_EXACT: return tt_score
-            elif tt_flag == TT_LOWERBOUND and tt_score >= beta: return tt_score
-            elif tt_flag == TT_UPPERBOUND and tt_score <= alpha: return tt_score
+    def clear(self) -> None:
+        self.tt.clear()
 
-    if depth <= 0: return quiescence_search(board, alpha, beta, color_sign, ctx)
+    def should_abort(self) -> None:
+        if self.nodes & 127 == 0 and self.stop.is_set():
+            raise AbortSearch()
 
-    is_check = board.is_check()
-    R = 2
-    if not is_null_move and not is_check and depth >= 3:
-        ep_sq, old_hash = board.push_null()
-        null_score = -negamax(board, depth - 1 - R, -beta, -beta + 1, -color_sign, ctx, is_null_move=True)
-        board.unpush_null(ep_sq, old_hash)
-        if null_score >= beta: return beta
-        
-    moves = board.legal_moves()
-    if not moves: return -99999 if is_check else 0
+    def order_moves(
+        self, moves: Iterator[Move], pos: Position, ply: int, tt_move: Move | None = None
+    ) -> list[Move]:
+        def move_score(m: Move) -> int:
+            if m == tt_move:
+                return 10_000_000
 
-    moves.sort(key=lambda m: move_priority(board, m, tt_move), reverse=True)
-    max_score = -INF
-    cur_best_move = None
-    
-    for i, move in enumerate(moves):
-        state = board.push(move)
-        
-        is_tactical = board.is_capture(move) or board.is_promotion(move)
-        score = None
-        
-        if depth >= 3 and i >= 3 and not is_check and not is_tactical:  # LMR
-            R = 1 if depth < 5 else 2
-            score = -negamax(board, depth - 1 - R, -alpha - 1, -alpha, -color_sign, ctx)
-            if score > alpha: score = None 
-                
-        if score is None:  # PVS
-            if i == 0: 
-                score = -negamax(board, depth - 1, -beta, -alpha, -color_sign, ctx)
-            else: 
-                score = -negamax(board, depth - 1, -alpha - 1, -alpha, -color_sign, ctx)
+            if m.is_capture(pos) or m.promotion:
+                return 1_000_000 + pos.value(m)
+
+            if m == self.killers[ply]:
+                return 900_000
+
+            return pos.value(m)
+
+        return sorted(moves, key=move_score, reverse=True)
+
+    def quiescence(self, pos: Position, alpha: int, beta: int, ply: int) -> int:
+        self.nodes += 1
+        self.should_abort()
+
+        stand_pat = pos.score
+
+        if stand_pat >= beta:
+            return beta
+        if alpha < stand_pat:
+            alpha = stand_pat
+
+        moves = self.order_moves(pos.gen_moves(qs=True), pos, ply)
+        for move in moves:
+            if stand_pat + pos.value(move) + 200 < alpha:
+                continue
+
+            state = pos.push(move)
+
+            if pos.is_check(side=pos.color ^ 1):
+                pos.unpush(state)
+                continue
+
+            score = -self.quiescence(pos, -beta, -alpha, ply + 1)
+            pos.unpush(state)
+
+            if score >= beta:
+                return beta
+            if score > alpha:
+                alpha = score
+
+        return alpha
+
+    def negamax(
+        self,
+        pos: Position,
+        depth: int,
+        alpha: int,
+        beta: int,
+        ply: int,
+        can_null: bool = True
+    ) -> int:
+        self.nodes += 1
+        self.should_abort()
+
+        if depth <= 0:
+            return self.quiescence(pos, alpha, beta, ply)
+
+        alpha = max(alpha, -MATE_VALUE + ply)
+        beta  = min(beta,  +MATE_VALUE - ply - 1)
+        if alpha >= beta:
+            return alpha
+
+        is_check = pos.is_check()
+
+        if is_check:
+            depth += 1
+
+        tt_entry = self.tt.get(pos.hash)
+        tt_move = None
+        if tt_entry is not None:
+            tt_move = tt_entry.move
+            if tt_entry.depth >= depth:
+                tt_score = tt_entry.score
+                if   tt_score >= +MATE_BOUND: tt_score -= ply
+                elif tt_score <= -MATE_BOUND: tt_score += ply
+
+                if (tt_entry.flag == Bound.EXACT) or \
+                   (tt_entry.flag == Bound.LOWER and tt_score >= beta) or \
+                   (tt_entry.flag == Bound.UPPER and tt_score <= alpha):
+                    return tt_score
+
+        if can_null and depth >= 3 and not is_check:  # Null Move Pruning
+            state = pos.push()
+            null_score = -self.negamax(pos, depth-3, -beta, -beta+1, ply+1, can_null=False)
+            pos.unpush(state)
+            if null_score >= beta:
+                return beta
+
+        best = -MATE_VALUE * 2
+        best_move = None
+        orig_alpha = alpha
+        legal_moves = 0
+
+        moves = self.order_moves(pos.gen_moves(), pos, ply, tt_move)
+
+        for move in moves:
+            state = pos.push(move)
+
+            if pos.is_check(side=pos.color ^ 1):
+                pos.unpush(state)
+                continue
+
+            legal_moves += 1
+            is_quiet = not move.is_capture(pos) and not move.promotion
+
+            if legal_moves == 1:  # PVS
+                score = -self.negamax(pos, depth - 1, -beta, -alpha, ply + 1, True)
+            else:
+                reduction = 0
+                if depth >= 3 and legal_moves >= 4 and is_quiet and not is_check:  # LMR
+                    reduction = 1
+
+                score = -self.negamax(pos, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, True)
+
                 if alpha < score < beta:
-                    score = -negamax(board, depth - 1, -beta, -alpha, -color_sign, ctx)
-        
-        score = -negamax(board, depth - int(not board.is_check()), -beta, -alpha, -color_sign, ctx)
-        board.unpush(state)
-        
-        if score > max_score: 
-            max_score = score
-            cur_best_move = move
-        if max_score > alpha: alpha = max_score
-        if alpha >= beta: break
-    
-    tt_flag = TT_EXACT
-    if max_score <= alpha_orig: tt_flag = TT_UPPERBOUND
-    elif max_score >= beta: tt_flag = TT_LOWERBOUND
-        
-    transposition_table[board_hash] = {'depth': depth, 'score': max_score, 'flag': tt_flag, 'best_move': cur_best_move}
-    return max_score
+                    score = -self.negamax(pos, depth - 1, -beta, -alpha, ply + 1, True)
 
-def get_best_move(board: Board, max_depth: int = 10, time_limit: float = 2.0) -> dict:
-    global transposition_table
-    transposition_table.clear()
+            pos.unpush(state)
 
-    best_move = None
-    completed_depth = 0
-    start_time = time.time()
-    color_sign = 1 if board.color else -1
+            if score > best:
+                best = score
+                best_move = move
 
-    ctx = {'nodes': 0, 'start_time': time.time(), 'time_limit': time_limit}
+            if score > alpha:
+                alpha = score
 
-    moves = board.legal_moves()
-    if not moves: return ctx | {'best_move': None}
+            if alpha >= beta:
+                if is_quiet: self.killers[ply] = move
+                break
 
-    try:
-        for depth in range(1, max_depth + 1):
-            moves.sort(key=lambda m: move_priority(board, m, best_move), reverse=True)
-            
-            cur_best_move = moves[0]
-            max_score = alpha = -INF
-            beta = INF
-            
-            for move in moves:
-                if time.time() - start_time > time_limit: raise SearchAborted()
-                    
-                state = board.push(move)
-                score = -negamax(board, depth - 1, -beta, -alpha, -color_sign, ctx)
-                board.unpush(state)
-                
-                if score > max_score:
-                    max_score = score
-                    cur_best_move = move
-                    
-                if max_score > alpha:
-                    alpha = max_score
+        if legal_moves == 0:
+            return -MATE_VALUE + ply if is_check else 0
 
-            best_move = cur_best_move
-            completed_depth = depth
+        store_score = best
+        if   store_score >= +MATE_BOUND: store_score += ply
+        elif store_score <= -MATE_BOUND: store_score -= ply
 
-    except SearchAborted:
-        pass
+        flag = Bound.UPPER if best <= orig_alpha else (Bound.LOWER if best >= beta else Bound.EXACT)
+        self.tt[pos.hash] = Entry(depth, store_score, flag, best_move)
 
-    total_time = time.time() - ctx['start_time']
-    nps = int(ctx['nodes'] / total_time) if total_time > 0 else 0
-        
-    return {
-        'best_move': best_move or moves[0],
-        'depth': completed_depth,
-        'nodes': ctx['nodes'],
-        'time': total_time,
-        'nps': nps,
-    }
+        return best
+
+    def pv(
+        self, pos: Position, max_depth: int = 20, seen: set | None = None
+    ) -> list[Move]:
+        if max_depth <= 0: return []
+        seen = seen or set()
+
+        entry = self.tt.get(pos.hash)
+        if not entry or not (move := entry.move): return []
+
+        line = [move]
+        state = pos.push(move)
+
+        if pos.hash not in seen:
+            seen.add(pos.hash)
+            line.extend(self.pv(pos, max_depth - 1, seen))
+
+        pos.unpush(state)
+        return line
+
+    def go(
+        self, pos: Position, stop: Event
+    ) -> Iterator[tuple[int, list[Move], int, float]]:
+        pos_cp = pos.copy()
+        self.nodes = 0
+        self.killers = [None] * 256
+        self.stop = stop
+
+        t0 = perf_counter()
+        score = 0
+
+        for depth in range(1, 100):
+            try:
+                score = self.negamax(pos_cp, depth, -MATE_VALUE*2, +MATE_VALUE*2, ply=0)
+                dt = perf_counter() - t0
+                logging.debug(f"depth {depth} score {score} nps {int(self.nodes / dt)}")
+                yield score, self.pv(pos_cp, max_depth=depth), self.nodes, dt
+
+            except AbortSearch:
+                logging.debug("search aborted after %.2f seconds", perf_counter() - t0)
+                return
+
