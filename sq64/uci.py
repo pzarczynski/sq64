@@ -9,8 +9,7 @@ from itertools import islice
 from subprocess import PIPE, Popen
 from threading import Event, Thread, Timer
 
-from sq64.engine import Engine
-from sq64.position import Position
+from sq64.engine import Engine, Position
 
 logging.basicConfig(format='%(levelname)s: %(message)s', stream=sys.stderr)
 
@@ -21,21 +20,24 @@ class UCI:
     _process: Popen
     _bestmove: str | None
     _thinking: bool
-    _ready: Event
+    _ready_event: Event
+    _move_event: Event
 
     def __init__(self, path: str) -> None:
         self._process = Popen(path, stdin=PIPE, stdout=PIPE, text=True, bufsize=1)
         self._bestmove: str | None = None
         self._thinking = False
-        self._ready = threading.Event()
+        self._ready_event = threading.Event()
+        self._move_event = threading.Event()
 
         def reader() -> None:
             for line in map(str.strip, self._process.stdout): # type: ignore
                 if line.startswith("bestmove"):
                     self._bestmove = line.split()[1]
                     self._thinking = False
+                    self._move_event.set()
                 elif line == "readyok":
-                    self._ready.set()
+                    self._ready_event.set()
 
         threading.Thread(target=reader, daemon=True).start()
         self._send("uci")
@@ -53,15 +55,19 @@ class UCI:
             self._process.stdin.flush()  # type: ignore
 
     def wait_for_ready(self, timeout: float = 2.0) -> bool:
-        self._ready.clear()
+        self._ready_event.clear()
         self._send("isready")
-        return self._ready.wait(timeout=timeout)
+        return self._ready_event.wait(timeout=timeout)
+
+    def wait_for_move(self, timeout: float = 5.0) -> bool:
+        return self._thinking and self._move_event.wait(timeout=timeout)
 
     def stop(self) -> None:
         self._send("stop")
         if not self.wait_for_ready(timeout=1.0): raise TimeoutError
         self._bestmove = None
         self._thinking = False
+        self._move_event.clear()
 
     def newgame(self) -> None:
         self.stop()

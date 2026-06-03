@@ -1,9 +1,7 @@
-.PHONY: all gui uci wrapper test perft profile clean match
+.PHONY: all uci wrapper test perft profile clean match
 
 all: wrapper
-
-gui: wrapper
-	uv run -m sq64.gui
+	uv run -m sq64
 
 uci:
 	uv run -m sq64.uci
@@ -18,14 +16,14 @@ test:
 	uv run pytest -v
 
 perft:
-	uv run -m sq64.perft
-
+	uv run -m sq64.chess 5
+	
 profile:
-	uv run -m vmprof -o profile.vmprof -m sq64.perft
+	uv run -m vmprof -o profile.vmprof -m sq64.chess 5
 	uv run -m vmprof.show profile.vmprof flat
 
 clean:
-	rm -rf sq64.sh sq64.bat profile.vmprof
+	rm -rf sq64.sh sq64.bat profile.vmprof .pytest_cache .ruff_cache
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
 match: wrapper

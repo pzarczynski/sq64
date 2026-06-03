@@ -87,6 +87,10 @@ class Piece(int):
     def promotions(color: Color) -> tuple["Piece", ...]:
         return tuple(Piece(color, pt) for pt in PROMOTIONS)
 
+    @property
+    def char(self) -> str:
+        return PIECE_CHARS[self.type].upper() if self.color else PIECE_CHARS[self.type].lower()
+
     def __str__(self) -> str:
         c = PIECE_CHARS[self.type]
         return c.upper() if self.color else c.lower()
@@ -143,6 +147,18 @@ class Move(int):
     def is_castling(self, board: "Board") -> bool:
         return board[self.frm].type == KING and self.delta == 2
 
+    def is_check(self, board: "Board") -> bool:
+        state = board.push(self)
+        check = board.is_check(board.color ^ 1)
+        board.unpush(state)
+        return check
+
+    def is_checkmate(self, board: "Board") -> bool:
+        state = board.push(self)
+        mate = board.is_check(board.color ^ 1) and not board.legal_moves()
+        board.unpush(state)
+        return mate
+
     @classmethod
     def parse(cls, s: str) -> "Move":
         frm = sq_frm_str(s[:2])
@@ -152,6 +168,47 @@ class Move(int):
 
     def astuple(self) -> tuple[SquareInt, SquareInt, PieceType]:
         return self.frm, self.to, self.promotion
+
+    def san(self, board: "Board") -> str:
+        if self.is_castling(board):
+            s = "O-O-O" if self.to < self.frm else "O-O"
+
+        else:
+            p = board[self.frm]
+            s = "" if p.type == PAWN else p.char.upper()
+
+            if p.type != PAWN:
+                to_same = [
+                    m for m in board.legal_moves()
+                    if m.to == self.to and m.frm != self.frm and board[m.frm] == p
+                ]
+
+                if to_same:
+                    same_file = any(sq_file(m.frm) == sq_file(self.frm) for m in to_same)
+                    same_rank = any(sq_rank(m.frm) == sq_rank(self.frm) for m in to_same)
+
+                    if not same_file:
+                        s += sq_to_str(self.frm)[0]
+                    elif not same_rank:
+                        s += sq_to_str(self.frm)[1]
+                    else:
+                        s += sq_to_str(self.frm)
+
+            if self.is_capture(board):
+                if p.type == PAWN: s += sq_to_str(self.frm)[0]
+                s += "x"
+
+            s += sq_to_str(self.to)
+
+            if self.promotion:
+                s += f"={PIECE_CHARS[self.promotion].upper()}"
+
+        if self.is_checkmate(board):
+            s += "#"
+        elif self.is_check(board):
+            s += "+"
+
+        return s
 
     def __str__(self) -> str:
         frm_file  = chr(sq_file(self.frm) + ord("a"))
@@ -280,12 +337,18 @@ class Board:
         self.unpush(state)
         return not check
 
-    def _is_attacked_by(self, sq: SquareInt, deltas: tuple[int, ...], sentinels: tuple[Piece, ...]) -> bool:
+    def _is_attacked_by(
+        self,
+        sq: SquareInt,
+        deltas: tuple[int, ...],
+        sentinels: tuple[Piece, ...],
+        stepper: bool = False
+    ) -> bool:
         for d in deltas:
             for cur_sq in count(sq + d, d):
                 if not sq_valid(cur_sq): break
                 val = self[cur_sq]
-                if val:
+                if val or stepper:
                     if val in sentinels: return True
                     break
         return False
@@ -300,10 +363,8 @@ class Board:
         if sq_valid(p_sq2) and self[p_sq2] == pawn: return True
 
         for p in (knight, king):
-            for d in p.deltas:
-                att_sq = sq + d
-                if sq_valid(att_sq) and self[att_sq] == p:
-                    return True
+            if self._is_attacked_by(sq, p.deltas, (p,), stepper=True):
+                return True
 
         if self._is_attacked_by(sq, rook.deltas, (rook, queen)):
             return True
@@ -513,6 +574,20 @@ class Board:
     def __setitem__(self, sq: SquareInt, piece: Piece) -> None:
         self.buf[sq] = piece
 
+    def perft(self, depth: int) -> int:
+        if depth == 0: return 1
+        nodes = 0
+        side = self.color
+
+        for move in self.gen_moves():
+            state = self.push(move)
+
+            if not self.is_check(side):
+                nodes += self.perft(depth - 1) if depth > 1 else 1
+
+            self.unpush(state)
+
+        return nodes
 
 class Square(int):
     __slots__ = ()
@@ -541,3 +616,18 @@ class Square(int):
 
     def __str__(self) -> str:
         return sq_to_str(self)
+
+
+if __name__ == "__main__":
+    import argparse
+    from time import perf_counter
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("depth", nargs="?", type=int, default=4)
+    args = parser.parse_args()
+
+    t0 = perf_counter()
+    nodes = Board().perft(args.depth)
+    elapsed = perf_counter() - t0
+    print(f"{nodes} nodes ({int(nodes / elapsed)} nps)")
+

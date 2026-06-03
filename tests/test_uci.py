@@ -27,7 +27,7 @@ def test_movetime(engine: UCI, movetime_ms: int) -> None:
     t0 = time.perf_counter()
     engine.go(movetime=movetime_ms)
 
-    got_move = engine._bestmove_event.wait(timeout=1 + movetime_ms / 1000)
+    got_move = engine.wait_for_move(timeout=movetime_ms / 1000 + 1)
     assert got_move is True
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
