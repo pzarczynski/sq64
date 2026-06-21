@@ -1,26 +1,32 @@
-[project]
-name = "sq64"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "pygame-ce>=2.5.7",
-    "pytest>=9.0.3",
-]
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.13",
-    "vmprof>=0.4.18.1",
+    "basedpyright>=1.39.7",
+    "ruff>=0.15.17",
 ]
 
-[tool.pytest.ini_options]
-pythonpath = ["."]
-
 [tool.ruff]
-line-length = 88
+line-length = 90
 target-version = "py311"
-lint.select = ["E", "W", "F", "B", "I", "UP", "C4",
-               "RET", "SIM", "ISC", "SLOT", "PTH", "ANN"]
-lint.ignore = ["F401", "E701"] #, "E501"]
+src = ["packages"]
+
+[tool.ruff.lint]
+select = [
+    "W", "I", "C90", "N", "S", "UP", "A", "B", "FBT", "Q",
+    "RUF", "SIM", "PTH", "C4", "COM", "TID", "ARG", "ANN", "PERF", "SLOT"
+]
+ignore = ["F401", "E701"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/*.py" = ["S101"]
+
+[tool.basedpyright]
+include = ["packages"]
+pythonVersion = "3.11"
+reportMissingTypeStubs = false
+reportAny = false
+reportImplicitRelativeImport = true
+reportUnusedCallResult = false
+reportImplicitOverride = false

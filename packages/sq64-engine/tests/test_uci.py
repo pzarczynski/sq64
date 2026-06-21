@@ -2,15 +2,12 @@ import time
 from collections.abc import Iterator
 
 import pytest
-
-from sq64.uci import UCI
-
-ENGINE_PATH = './sq64.sh'
+from sq64_engine import UCI
 
 
 @pytest.fixture
 def engine() -> Iterator[UCI]:
-    uci = UCI(ENGINE_PATH)
+    uci = UCI("uv run -m sq64_engine.uci")
     yield uci
     uci.quit()
 

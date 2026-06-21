@@ -1,6 +1,5 @@
 import pytest
-
-from sq64.chess import Board
+from sq64_chess import Board
 
 POSITIONS = [
     ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 4, 197281),  # starting

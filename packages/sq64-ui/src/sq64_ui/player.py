@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
 
-from sq64 import chess
-from sq64.chess import Move, Square
-from sq64.game import Game, Movetime
-from sq64.uci import UCI
+from sq64_chess import Move, PieceType, Square
+from sq64_chess.game import Game, Movetime
+from sq64_engine import UCI
 
 
 class Player(ABC):
@@ -16,7 +15,7 @@ class Player(ABC):
     @abstractmethod
     def update_sq(self, sq: Square) -> None: ...
     @abstractmethod
-    def update_promo(self, promo: chess.PieceType) -> None: ...
+    def update_promo(self, promo: PieceType) -> None: ...
     @abstractmethod
     def getmove(self) -> Move | None: ...
     @property
@@ -48,13 +47,15 @@ class Human(Player):
     def update_sq(self, sq: Square) -> None:
         if self._game:
             piece = self._game[sq]
-            if self._selected_sq is not None and (not piece or piece.color != self._game.color):
+            if self._selected_sq is not None and (
+                not piece or piece.color != self._game.color
+            ):
                 self._move = Move(self._selected_sq, sq)
                 self._wants_promo = self._game[self._selected_sq].can_promote(sq)
             else:
                 self._selected_sq = sq
 
-    def update_promo(self, promo: chess.PieceType) -> None:
+    def update_promo(self, promo: PieceType) -> None:
         if self._move:
             self._wants_promo = False
             self._move = Move(self._move.frm, self._move.to, promo)
@@ -64,15 +65,19 @@ class Human(Player):
         self._clear()
 
     @property
-    def wants_promo(self) -> bool: return self._wants_promo
+    def wants_promo(self) -> bool:
+        return self._wants_promo
+
     @property
-    def selected_sq(self) -> Square | None: return self._selected_sq
+    def selected_sq(self) -> Square | None:
+        return self._selected_sq
 
     def getmove(self) -> Move | None:
         return self._move if not self._wants_promo else None
 
     # irrelevant abstract methods
-    def quit(self) -> None: pass
+    def quit(self) -> None:
+        pass
 
 
 class Computer(Player):
@@ -83,8 +88,11 @@ class Computer(Player):
         self._movetime = response_speed
         self._uci = UCI(path)
 
-    def quit(self) -> None: self._uci.quit()
-    def reset(self) -> None: self._uci.newgame()
+    def quit(self) -> None:
+        _ = self._uci.quit()
+
+    def reset(self) -> None:
+        self._uci.newgame()
 
     def begin(self, game: Game) -> None:
         if not self._uci.thinking:
@@ -96,10 +104,16 @@ class Computer(Player):
         return Move.parse(self._uci.bestmove) if self._uci.bestmove else None
 
     @property
-    def wants_promo(self) -> bool: return False
+    def wants_promo(self) -> bool:
+        return False
 
     # irrelevant abstract methods
-    def update_sq(self, sq: Square) -> None: pass
-    def update_promo(self, promo: chess.PieceType) -> None: pass
+    def update_sq(self, sq: Square) -> None:
+        pass
+
+    def update_promo(self, promo: PieceType) -> None:
+        pass
+
     @property
-    def selected_sq(self) -> Square | None: return None
+    def selected_sq(self) -> Square | None:
+        return None
