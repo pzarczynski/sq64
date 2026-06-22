@@ -2,8 +2,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from . import Chessboard, Color, Move, PieceType, Transition
-from .types import color_name
+from .board import Chessboard, Transition
+from .types import Color, Move, PieceType, color_name
 
 
 @dataclass(slots=True)
