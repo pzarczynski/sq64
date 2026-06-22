@@ -1,12 +1,9 @@
 .PHONY: all sync wrap uci test perft profile clean distclean
 
 all: wrap
-	uv run sq64-gui
+	uv run --no-dev sq64-gui
 
-sync:
-	uv sync
-
-wrap: sync
+wrap:
 	@echo '#!/bin/bash' > sq64.sh
 	@echo 'cd "$$(dirname "$$0")"' >> sq64.sh
 	@echo 'uv run sq64-uci' >> sq64.sh
@@ -21,7 +18,7 @@ test:
 perft:
 	uv run sq64-perft 5
 	
-profile: sync
+profile:
 	uv run -m vmprof -o profile.vmprof -m sq64_chess.perft 5
 	uv run -m vmprof.show profile.vmprof flat
 

@@ -1,13 +1,13 @@
 """
-Rdzeń logiczny sq64.
+The core of sq64.
 
-Pakiet ten implementuje zasady gry w szachy (FIDE) oraz całkiem wydajny generator ruchów.
-Zamiast standardowej tablicy 8x8, wykorzystuje reprezentację **0x88** pozwalającą na szybszą
-weryfikację poprawności pól za pomocą operacji bitowych.
+This package implements the rules of chess (FIDE) and a fairly efficient move generator.
+Instead of the typical 8x8 board, it uses a **0x88** representation that allows for faster
+validation of squares using bitwise operations.
 
-### Ważne komponenty:
-- `sq64_chess.board.Chessboard` - Stan planszy (push/unpush move) i generator ruchów.
-- `sq64_chess.game.Game` - Rozszerzenie planszy o logikę partii (zegary, historia, PGN).
+### Important components:
+- `sq64_chess.board.Chessboard` - Board state (push/unpush move) and move generator.
+- `sq64_chess.game.Game` - Extends the board with game logic (clocks, history, PGN).
 """
 
 __all__: list[str] = []

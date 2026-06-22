@@ -391,17 +391,17 @@
                     <h1 class="modulename">
 sq64_chess    </h1>
 
-                        <div class="docstring"><p>Rdzeń logiczny sq64.</p>
+                        <div class="docstring"><p>The core of sq64.</p>
 
-<p>Pakiet ten implementuje zasady gry w szachy (FIDE) oraz całkiem wydajny generator ruchów.
-Zamiast standardowej tablicy 8x8, wykorzystuje reprezentację <strong>0x88</strong> pozwalającą na szybszą
-weryfikację poprawności pól za pomocą operacji bitowych.</p>
+<p>This package implements the rules of chess (FIDE) and a fairly efficient move generator.
+Instead of the typical 8x8 board, it uses a <strong>0x88</strong> representation that allows for faster
+validation of squares using bitwise operations.</p>
 
-<h3 id="wazne-komponenty">Ważne komponenty:</h3>
+<h3 id="important-components">Important components:</h3>
 
 <ul>
-<li><code><a href="#Chessboard">sq64_chess.board.Chessboard</a></code> - Stan planszy (push/unpush move) i generator ruchów.</li>
-<li><code><a href="sq64_chess/game.html#Game">sq64_chess.game.Game</a></code> - Rozszerzenie planszy o logikę partii (zegary, historia, PGN).</li>
+<li><code><a href="#Chessboard">sq64_chess.board.Chessboard</a></code> - Board state (push/unpush move) and move generator.</li>
+<li><code><a href="sq64_chess/game.html#Game">sq64_chess.game.Game</a></code> - Extends the board with game logic (clocks, history, PGN).</li>
 </ul>
 </div>
 
@@ -410,15 +410,15 @@ weryfikację poprawności pól za pomocą operacji bitowych.</p>
                         <label class="view-source-button" for="mod-sq64_chess-view-source"><span>View Source</span></label>
 
                         <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a><span class="sd">Rdzeń logiczny sq64.</span>
+</span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a><span class="sd">The core of sq64.</span>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">Pakiet ten implementuje zasady gry w szachy (FIDE) oraz całkiem wydajny generator ruchów.</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">Zamiast standardowej tablicy 8x8, wykorzystuje reprezentację **0x88** pozwalającą na szybszą</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="sd">weryfikację poprawności pól za pomocą operacji bitowych.</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">This package implements the rules of chess (FIDE) and a fairly efficient move generator.</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">Instead of the typical 8x8 board, it uses a **0x88** representation that allows for faster</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="sd">validation of squares using bitwise operations.</span>
 </span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="sd">### Ważne komponenty:</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">- `sq64_chess.board.Chessboard` - Stan planszy (push/unpush move) i generator ruchów.</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="sd">- `sq64_chess.game.Game` - Rozszerzenie planszy o logikę partii (zegary, historia, PGN).</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="sd">### Important components:</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">- `sq64_chess.board.Chessboard` - Board state (push/unpush move) and move generator.</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="sd">- `sq64_chess.game.Game` - Extends the board with game logic (clocks, history, PGN).</span>
 </span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="sd">&quot;&quot;&quot;</span>
 </span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>
 </span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="n">__all__</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>

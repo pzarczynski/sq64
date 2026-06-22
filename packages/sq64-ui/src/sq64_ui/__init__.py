@@ -1,12 +1,12 @@
 """
-GUI oparte na architekturze MVP.
+A GUI based on the MVP architecture.
 
-Pakiet odpowiada za wyświetlanie gry przy użyciu biblioteki `pygame-ce`.
-Warstwa wizualna została odseparowana od logiki,
-zostawiając widok sterowany przez głównego prezentera.
+The package is responsible for rendering the game using the `pygame-ce` library.
+The visual layer has been separated from the logic,
+leaving the view controlled by the main presenter.
 
-### Najważniejsze komponenty:
-- `sq64_ui.controller.Controller` - Prezenter (MVP). Steruje modelem i nakazuje odświeżenie widoków.
-- `sq64_ui.gui.Widget` - Baza autorskiego frameworka widgetów.
-- `sq64_ui.player.Player` - Interfejs wzorca Strategii do polimorficznej obsługi ruchów (Człowiek/Bot).
+### Key components:
+- `sq64_ui.controller.Controller` - Presenter (MVP). Controls the model and instructs the views to refresh.
+- `sq64_ui.gui.Widget` - The foundation of the custom widget framework.
+- `sq64_ui.player.Player` - Strategy pattern interface for polymorphic handling of moves (Human/Bot).
 """

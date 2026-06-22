@@ -1,11 +1,11 @@
 """
-Silnik szachowy.
+Chess engine.
 
-Pakiet rozszerza rdzeń gry o inkrementalną ewaluację pozycji i implementuje
-przeszukiwanie drzewa decyzyjnego z użyciem algorytmu **PVS (Alpha-Beta)**.
+This package extends the game core with incremental position evaluation and implements
+decision tree search using the **PVS (Alpha-Beta)** algorithm.
 
-### Ważne komponenty:
-- `sq64_engine.client.UCI` - asynchroniczny klient do komunikacji międzyprocesowej.
+### Important components:
+- `sq64_engine.client.UCI` - an asynchronous client for interprocess communication.
 """
 
 
