@@ -5,7 +5,8 @@ from functools import partial
 from itertools import islice
 from threading import Event, Thread, Timer
 
-from .engine import Engine, Position
+from .engine import Engine
+from .position import Position
 
 logging.basicConfig(format="%(levelname)s: %(message)s", stream=sys.stderr)
 
@@ -15,6 +16,7 @@ print = partial(print, flush=True)  # noqa: A001
 def go_loop(
     engine: Engine, pos: Position, stop: Event, movetime: float | None, depth: int,
 ) -> None:
+    """Runs the engine's search loop, printing info lines and the best move when done."""
     if movetime is not None:  # infinite when none
         Timer(movetime, stop.set).start()
 
@@ -32,6 +34,7 @@ def go_loop(
 
 
 def uci_loop() -> None:
+    """Main loop to handle UCI commands from standard input and interact with the chess engine accordingly."""
     engine = Engine()
     pos = Position()
     stop = Event()

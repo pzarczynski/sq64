@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Generic, Self, TypeVar
 
 import pygame
 
@@ -15,27 +14,6 @@ class Event: ...
 @dataclass(slots=True, frozen=True)
 class ClickEvent(Event):
     pos: tuple[int, int]
-
-
-E = TypeVar("E", bound=Event)
-Handler = Callable[[E], Any]
-
-
-class EventBus:
-    _handlers: dict[type[Event], set[Callable[[Any], Any]]]
-
-    def __init__(self) -> None:
-        self._handlers = defaultdict(set)
-
-    def register(self, event_type: type[E], handler: Handler[E]) -> None:
-        self._handlers[event_type].add(handler)
-
-    def unregister(self, event_type: type[E], handler: Handler[E]) -> None:
-        self._handlers[event_type].discard(handler)
-
-    def emit(self, event: Event) -> None:
-        for handler in self._handlers[type(event)]:
-            handler(event)
 
 
 class RGB(tuple[int, int, int], Enum):
@@ -56,6 +34,7 @@ ColorLike = RGB | tuple[int, int, int] | tuple[int, int, int, int]
 
 
 class Widget:
+    """Base class for all GUI widgets, providing common functionality for layout, drawing, and event handling."""
     _rect: pygame.Rect
 
     def __init__(self) -> None:
@@ -74,12 +53,18 @@ W = TypeVar("W", bound=Widget)
 
 
 class Text(Widget):
+    """A widget that renders text with automatic scaling to fit its layout rectangle."""
+    _text: str
+    _color: RGB
+    _scale: float
+    _surf: pygame.Surface | None
+
     def __init__(self, text: str, color: RGB, scale: float = 0.6) -> None:
         super().__init__()
         self._text = text
         self._color = color
         self._scale = scale
-        self._surf: pygame.Surface | None = None
+        self._surf = None
 
     def set_text(self, text: str) -> None:
         if self._text != text:
@@ -102,7 +87,7 @@ class Text(Widget):
         ratio = min(self._rect.w / text_w, self._rect.h / text_h)
         font_size = max(1, int(base_size * ratio * self._scale))
         font = pygame.font.SysFont(None, font_size)
-        self._surf = font.render(self._text, True, self._color)
+        self._surf = font.render(self._text, color=self._color, antialias=True)
 
     def layout(self, rect: pygame.Rect) -> None:
         if self._rect == rect and self._surf is not None:
@@ -117,21 +102,25 @@ class Text(Widget):
 
 
 class Image(Widget):
+    """A widget that renders an image with optional padding and automatic scaling to fit its layout rectangle."""
+    _orig_surf: pygame.Surface | None
+    _surf: pygame.Surface | None
+    _padding: float
+
     def __init__(
         self, surf: pygame.Surface | None = None, padding: float = 0.0,
     ) -> None:
         super().__init__()
         self._orig_surf = surf
         self._padding = padding
-        self._surf: pygame.Surface | None = None
+        self._surf = None
 
     def set_surf(self, surf: pygame.Surface) -> None:
         self._orig_surf = surf
         self.layout(self._rect)
 
     def layout(self, rect: pygame.Rect) -> None:
-        if self._rect == rect and self._surf is not None:
-            return
+        if self._rect == rect and self._surf is not None: return
 
         super().layout(rect)
         if self._orig_surf:
@@ -144,6 +133,11 @@ class Image(Widget):
 
 
 class Button(Widget):
+    """A widget that wraps another widget and triggers a callback when clicked, with optional background color."""
+    _child: Widget
+    _on_click: Callable[[], None]
+    _bg: RGB | None
+
     def __init__(
         self, child: Widget, on_click: Callable[[], None], bg: RGB | None = None,
     ) -> None:
@@ -151,6 +145,10 @@ class Button(Widget):
         self._child = child
         self._on_click = on_click
         self._bg = bg
+
+    def set_child(self, child: Widget) -> None:
+        self._child = child
+        self.layout(self._rect)
 
     def layout(self, rect: pygame.Rect) -> None:
         super().layout(rect)
@@ -180,9 +178,7 @@ class Button(Widget):
 
 
 class Box(Widget, ABC):
-    _children: list[Widget]
-    _weights: list[float]
-
+    """A base class for layout containers that arrange child widgets either horizontally, vertically, or stacked, with optional spacing and weight-based sizing."""
     def __init__(
         self,
         *children: Widget,
@@ -190,10 +186,15 @@ class Box(Widget, ABC):
         spacing: float = 0,
     ) -> None:
         super().__init__()
-        assert weights is None or len(weights) == len(children)
-        self._spacing = spacing
-        self._children = list(children)
-        self._weights = weights or ([1.0] * len(children))
+        if weights is not None and len(weights) != len(children):
+            raise ValueError("Length of weights must match number of children")
+
+        self._spacing: float = spacing
+        self._children: list[Widget] = list(children)
+        self._weights: list[float] = weights or ([1.0] * len(children))
+
+    @property
+    def children(self) -> list[Widget]: return self._children
 
     def handle_event(self, event: Event) -> bool:
         return any(c.handle_event(event) for c in reversed(self._children))
@@ -207,12 +208,13 @@ class Box(Widget, ABC):
         super().layout(rect)
 
     @classmethod
-    def pad(cls, *ch: Widget, pad: float, spacing: float = 0) -> "Box":
+    def pad(cls, *ch: Widget, pad: float, spacing: float = 0) -> "Self":
         w = [1 - 2 * pad] * len(ch)
         return cls(Widget(), *ch, Widget(), weights=[pad, *w, pad], spacing=spacing)
 
 
 class HBox(Box):
+    """A widget that arranges its child widgets horizontally, with optional spacing and weight-based sizing."""
     def layout(self, rect: pygame.Rect) -> None:
         super().layout(rect)
         if not self._children:
@@ -229,6 +231,7 @@ class HBox(Box):
 
 
 class VBox(Box):
+    """A widget that arranges its child widgets vertically, with optional spacing and weight-based sizing."""
     def layout(self, rect: pygame.Rect) -> None:
         super().layout(rect)
         if not self._children:
@@ -245,6 +248,9 @@ class VBox(Box):
 
 
 class StackBox(Box):
+    """A widget that stacks its child widgets on top of each other, with only one active at a time."""
+    _active_index: int
+
     def __init__(self, *children: Widget) -> None:
         super().__init__(*children, spacing=0)
         self._active_index = 0
@@ -269,6 +275,11 @@ class StackBox(Box):
 
 
 class Grid(Widget, Generic[W]):
+    """A widget that arranges its child widgets in a grid layout."""
+    _rows: int
+    _cols: int
+    _spacing: float
+    _bg: Image | None
     _cells: list[W]
 
     def __init__(
@@ -284,7 +295,6 @@ class Grid(Widget, Generic[W]):
         self._cols = cols
         self._spacing = spacing
         self._bg = bg
-
         self._cells = [factory() for _ in range(rows * cols)]
 
     def __setitem__(self, rowcol: tuple[int, int], widget: W) -> None:
@@ -330,11 +340,12 @@ class Grid(Widget, Generic[W]):
                     h = cell_h - spacing_h
                     cell.layout(pygame.Rect(x, y, w, h))
 
-
 K = TypeVar("K")
 
-
 class WidgetDict(Widget, Generic[K]):
+    """A widget that manages a dictionary of child widgets."""
+    _widgets: dict[K, Widget]
+
     def __init__(self, x: dict[K, Widget] | None = None) -> None:
         super().__init__()
         self._widgets = x or {}
@@ -366,22 +377,32 @@ class WidgetDict(Widget, Generic[K]):
             w.layout(rect)
 
 
-class Window(ABC, Generic[W]):
-    root: W
+class Window(ABC):
+    """A base class for the main application window, managing the main event loop and providing an interface for updating the application state."""
+    screen: pygame.Surface
+    clock: pygame.time.Clock
+    running: bool
+    root: Widget | None
 
-    def __init__(self, width: float, height: float, title: str) -> None:
+    def __init__(
+        self,
+        width: float,
+        height: float,
+        title: str,
+    ) -> None:
+        self.root = None
         self.screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
         pygame.display.set_caption(title)
         self.clock = pygame.time.Clock()
         self.running = False
-        self.bus = EventBus()
 
-    def set_root(self, root: W) -> None:
+    def set_root(self, root: Widget) -> None:
         self.root = root
-        if self.running:
-            self.root.layout(self.screen.get_rect())
 
     def run(self) -> None:
+        if self.root is None:
+            raise RuntimeError("Root widget not set")
+
         self.running = True
         self.root.layout(self.screen.get_rect())
         while self.running:
@@ -401,3 +422,5 @@ class Window(ABC, Generic[W]):
 
     @abstractmethod
     def update(self, dt: int) -> None: ...
+
+

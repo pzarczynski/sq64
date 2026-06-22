@@ -1,6 +1,6 @@
 from typing import NamedTuple
 
-from sq64_chess import Board, Move, Piece, PieceType, Transition
+from sq64_chess import Chessboard, Move, Piece, PieceType, Transition
 
 from .tables import piece_value_at
 
@@ -10,7 +10,8 @@ class PosTransition(NamedTuple):
     score: int
 
 
-class Position(Board):
+class Position(Chessboard):
+    """Represents a chess position with an evaluation score."""
     _score: int
 
     def __init__(self, fen: str | None = None) -> None:
@@ -18,10 +19,12 @@ class Position(Board):
         self._score = self.evaluate()
 
     def evaluate(self) -> int:
+        """Evaluates the position by summing the values of all pieces on the board, adjusted for their positions."""
         return sum(piece_value_at(p, sq) for sq, p in self)
 
     @property
     def relscore(self) -> int:
+        """Returns the evaluation score from the perspective of the side to move."""
         return self._score if self.color else -self._score
 
     def _value(self, move: Move | None) -> int:
@@ -49,13 +52,16 @@ class Position(Board):
         return score
 
     def relvalue(self, move: Move) -> int:
+        """Returns the change in evaluation score resulting from making the given move, from the perspective of the side to move."""
         return self._value(move) if self.color else -self._value(move)
 
     def play(self, move: Move | None = None) -> PosTransition:
+        """Plays a move on the board, updating the position and evaluation score accordingly, and returns the transition state."""
         old_score = self._score
         self._score += self._value(move)
         return PosTransition(super().push(move), old_score)
 
     def unplay(self, state: PosTransition) -> None:
+        """Reverts a move on the board, restoring the previous position and evaluation score from the given transition state."""
         super().unpush(state.trans)
         self._score = state.score

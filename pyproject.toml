@@ -4,11 +4,13 @@ members = ["packages/*"]
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.7",
+    "pdoc>=16.0.0",
     "ruff>=0.15.17",
+    "vmprof>=0.4.18.1",
 ]
 
 [tool.ruff]
-line-length = 90
+line-length = 100
 target-version = "py311"
 src = ["packages"]
 

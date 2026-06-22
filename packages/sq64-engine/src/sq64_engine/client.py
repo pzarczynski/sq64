@@ -4,6 +4,7 @@ from threading import Event, Thread
 
 
 class UCI:
+    """Client for communicating with a UCI-compatible chess engine."""
     _process: Popen[str]
     _bestmove: str | None
     _thinking: bool
@@ -45,14 +46,17 @@ class UCI:
                 self._process.stdin.flush()
 
     def wait_for_ready(self, timeout: float = 2.0) -> bool:
+        """Waits for the engine to respond with 'readyok' after sending 'isready'."""
         self._ready_event.clear()
         self._send("isready")
         return self._ready_event.wait(timeout=timeout)
 
     def wait_for_move(self, timeout: float = 5.0) -> bool:
+        """Waits for the engine to respond with 'bestmove' after sending 'go'."""
         return self._thinking and self._move_event.wait(timeout=timeout)
 
     def stop(self) -> None:
+        """Sends the 'stop' command to the engine to halt any ongoing search."""
         self._send("stop")
         if not self.wait_for_ready(timeout=1.0): raise TimeoutError
         self._bestmove = None
@@ -60,15 +64,18 @@ class UCI:
         self._move_event.clear()
 
     def newgame(self) -> None:
+        """Starts a new game by sending 'ucinewgame' and resetting the engine state."""
         self.stop()
         self._send("ucinewgame")
 
     def quit(self) -> int:
+        """Quits the engine process and returns its exit code."""
         self._send("quit")
         self._process.terminate()
         return self._process.wait(timeout=1)
 
     def go(self, fen: str | None = None, movetime: int | None = None) -> None:
+        """Starts the engine's search for the best move from the given position (FEN) and time limit (milliseconds)."""
         self.stop()
         self._send("position " + (f"fen {fen}" if fen else "startpos"))
         self._send("go " + ("infinite" if movetime is None else f"movetime {movetime}"))

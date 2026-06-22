@@ -6,6 +6,7 @@ from sq64_engine import UCI
 
 
 class Player(ABC):
+    """An abstract base class representing a player in the chess game, defining the interface for interacting with the game state and making moves."""
     @abstractmethod
     def begin(self, game: Game) -> None: ...
     @abstractmethod
@@ -27,6 +28,7 @@ class Player(ABC):
 
 
 class Human(Player):
+    """An implementation of the Player interface representing a human player, allowing interaction through square selection and promotion choice."""
     _move: Move | None
     _wants_promo: bool
     _selected_sq: Square | None
@@ -81,6 +83,7 @@ class Human(Player):
 
 
 class Computer(Player):
+    """An implementation of the Player interface representing a computer player, using a UCI-compatible chess engine."""
     _movetime: Movetime
     _uci: UCI
 

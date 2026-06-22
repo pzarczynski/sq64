@@ -9,6 +9,7 @@ from .types import CastlRights, Color, Move, Piece, PieceType, Square
 
 
 class Zobrist:
+    """Zobrist hashing for chess positions."""
     _rng: random.Random
     _color_hash: int
     _sq_hash: list[int]
@@ -25,7 +26,7 @@ class Zobrist:
     def rand64(self) -> int:
         return self._rng.getrandbits(64)
 
-    def board_hash(self, board: "Board") -> int:
+    def board_hash(self, board: "Chessboard") -> int:
         return (
             self.color_hash() ^ self.castl_hash(board.castling_rights) ^
             reduce(xor, (self.piece_hash(p, sq) for sq, p in board)) ^  # pyright: ignore[reportUnknownArgumentType]
@@ -46,6 +47,7 @@ class Zobrist:
 
 
 class Transition(NamedTuple):
+    """Represents the state change caused by a move, used for unmaking moves."""
     move: Move | None
     ep_sq: Square | None
     cr: CastlRights
@@ -54,7 +56,8 @@ class Transition(NamedTuple):
     is_ep: bool = False
 
 
-class Board:
+class Chessboard:
+    """Represents the state of a chess game."""
     STARTING_FEN: str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     _hasher: Zobrist = Zobrist()
 
@@ -98,8 +101,9 @@ class Board:
 
         self._hash = self._hasher.board_hash(self)
 
-    def king_square(self, color: Color) -> Square:
-        return self._king_sq[color]
+    def king_square(self, color: Color | None = None) -> Square:
+        """Returns the square of the king for the given color, or the current player's king if color is None."""
+        return self._king_sq[self._color if color is None else color]
 
     def _is_attacked_by(
         self,
@@ -121,6 +125,7 @@ class Board:
         return False
 
     def is_attacked(self, sq: Square, by: Color) -> bool:
+        """Returns True if the square is attacked by any piece of the given color."""
         pawn, knight, bishop, rook, queen, king = PIECES[by]
         pawn_dir = S if by else N
 
@@ -143,18 +148,21 @@ class Board:
         return self.is_attacked(self._king_sq[side], by=not side)
 
     def is_check_after(self, move: Move) -> bool:
+        """Returns True if the current player is in check after making the given move."""
         state = self.push(move)
         check = self.is_check(not self._color)
         self.unpush(state)
         return check
 
     def is_checkmate_after(self, move: "Move") -> bool:
+        """Returns True if the current player is in checkmate after making the given move."""
         state = self.push(move)
         mate = self.is_check(not self._color) and not self.legal_moves()
         self.unpush(state)
         return mate
 
     def is_legal(self, move: Move) -> bool:
+        """Returns True if the move does not leave the current player's king in check."""
         state = self.push(move)
         check = self.is_attacked(self._king_sq[self._color^1], self._color)
         self.unpush(state)
@@ -210,6 +218,9 @@ class Board:
             yield Move(frm, frm - 2)
 
     def gen_moves(self, *, qs: bool = False) -> Iterator[Move]:
+        """Generates all legal moves for the current player.
+        If qs is True, only generates quiet moves (no captures, promotions, or castling).
+        """
         for frm, p in self.pieces_by_color(self._color):
             pt = p.type
 
@@ -235,9 +246,11 @@ class Board:
         yield from self.gen_castling_moves(qs=qs)
 
     def legal_moves(self) -> list[Move]:
+        """Returns a list of all legal moves for the current player, filtering out any moves that would leave the king in check."""
         return [m for m in self.gen_moves() if self.is_legal(m)]
 
     def push(self, move: Move | None = None) -> Transition:
+        """Pushes the given move onto the board, updating the position and returning a Transition object that can be used to unpush the move later."""
         old_hash = self._hash
         cr = self._cr
         ep = self._ep_sq
@@ -301,6 +314,8 @@ class Board:
         return self.push(Move.parse(s))
 
     def unpush(self, t: Transition) -> None:
+        """Unpushes a move using the given Transition object, restoring the board to its previous state before the move was made.
+        """
         self._color = not self._color
         self._hash = t.hash
         self._ep_sq = t.ep_sq
@@ -341,6 +356,8 @@ class Board:
                 yield sq, Piece(v)
 
     def fen(self) -> str:
+        """Returns the FEN string representation of the current board position.
+        """
         def row(r: int) -> str:
             s = ""
             empty_count = 0
@@ -386,6 +403,8 @@ class Board:
         return str(move.frm)
 
     def san(self, move: "Move") -> str:
+        """Returns the SAN string representation of the given move in the context of the current board position.
+        """
         if self.is_castling(move):
             s = "O-O-O" if move.to < move.frm else "O-O"
         else:
@@ -411,7 +430,10 @@ class Board:
 
         return s
 
-    def copy(self) -> Self: return type(self)(self.fen())
+    def copy(self) -> Self:
+        """Returns a deep copy of the current board position.
+        """
+        return type(self)(self.fen())
 
     def __hash__(self) -> int: return self._hash
     def __str__(self) -> str: return self.fen()
@@ -424,6 +446,8 @@ class Board:
                 yield sq, Piece(v)
 
     def perft(self, depth: int) -> int:
+        """Perft (performance test) function that counts the number of leaf nodes in the move tree up to a given depth, used for testing move generation and making/unmaking moves.
+        """
         if depth == 0: return 1
         nodes = 0
         side = self._color

@@ -1,14 +1,14 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Protocol
 
-from . import Board, Color, Move, Piece, PieceType, Square, Transition
+from . import Chessboard, Color, Move, PieceType, Transition
 from .types import color_name
 
 
 @dataclass(slots=True)
 class Time:
+    """Represents a player's remaining time and increment in miliseconds."""
     _time_ms: int
     _incr_ms: int
 
@@ -30,7 +30,8 @@ class Time:
     def add_increment(self) -> None:
         self._time_ms += self._incr_ms
 
-    def is_over(self) -> bool: return self._time_ms <= 0
+    def is_over(self) -> bool:
+        return self._time_ms <= 0
 
     def astuple(self) -> tuple[int, int]:
         return (self.minutes, self.seconds)
@@ -40,6 +41,7 @@ class Time:
 
 
 class Tempo(Enum):
+    """Represents common time controls for chess games."""
     BULLET = auto()
     BLITZ  = auto()
     RAPID  = auto()
@@ -56,6 +58,7 @@ class Tempo(Enum):
 
 
 class Movetime(Enum):
+    """Represents different time management strategies for chess engines."""
     FAST   = auto()
     NORMAL = auto()
     SLOW   = auto()
@@ -68,6 +71,7 @@ class Movetime(Enum):
 
 
 class Outcome(Enum):
+    """Represents the possible outcomes of a chess game."""
     CHECKMATE = auto()
     TIME_OVER = auto()
 
@@ -87,7 +91,8 @@ class Outcome(Enum):
             case Outcome.INSUFFICIENT: return "Draw by insufficient material"
 
 
-class Game(Board):
+class Game(Chessboard):
+    """Represents a chess game, including the current board state, move history, and time control."""
     fullmoves: int
     halfmoves: int
     history: list[Transition]
@@ -108,20 +113,19 @@ class Game(Board):
 
     def is_stalemate(self) -> bool: return not self.is_check() and not self.legal_moves()
     def is_checkmate(self) -> bool: return self.is_check() and not self.legal_moves()
-    def is_threefold(self) -> bool:
-        return sum(1 for s in self.history if s.hash == self._hash) >= 2
-    def is_fifty_moves(self) -> bool: return self.halfmoves >= 100
+    def is_threefold(self) -> bool: return sum(s.hash == self._hash for s in self.history) >= 2
     def is_time_over(self) -> bool: return self.control[self.color].is_over()
+    def is_fifty_moves(self) -> bool: return self.halfmoves >= 100
 
     def is_decisive(self) -> bool:
+        """Returns True if the game has a decisive outcome (checkmate or time over)."""
         return self.is_checkmate() or self.is_time_over()
 
     def is_draw(self) -> bool:
         return (self.is_stalemate() or self.is_fifty_moves() or
                 self.is_threefold() or self.is_insufficient_material())
 
-    def is_game_over(self) -> bool:
-        return self.is_decisive() or self.is_draw()
+    def is_game_over(self) -> bool: return self.is_decisive() or self.is_draw()
 
     @property
     def outcome(self) -> Outcome | None:
@@ -134,6 +138,7 @@ class Game(Board):
         return None
 
     def play(self, move: Move) -> None:
+        """Plays a move on the board, updating the game state and time control accordingly."""
         self.control[self.color].add_increment()
         self.history.append(super().push(move))
         self.fullmoves += self.color ^ 1  # increment after black
@@ -150,6 +155,7 @@ class Game(Board):
         return Game(self.fen(), (Time(*self.control[0]), Time(*self.control[1])))
 
     def pgn(self) -> str:
+        """Generates a PGN string representing the game history."""
         board = self.copy()
         _ = any(map(board.unpush, reversed(self.history)))
 
@@ -170,32 +176,5 @@ class Game(Board):
         return " ".join(pgn_gen())
 
     def tick(self, dt_ms: int) -> None:
+        """Advances the game clock by the given number of milliseconds."""
         self.control[self.color].tick(dt_ms)
-
-    def __iter__(self) -> Iterator[tuple[Square, Piece]]:
-        yield from ((Square(sq), p) for sq, p in super().__iter__())
-
-
-class GameViewer(Protocol):
-    @property
-    def color(self) -> Color: ...
-    @property
-    def is_check(self) -> bool: ...
-    @property
-    def board(self) -> Iterable[tuple[Square, Piece]]: ...
-    @property
-    def outcome(self) -> Outcome | None: ...
-    @property
-    def selected_sq(self) -> Square | None: ...
-    @property
-    def wants_promo(self) -> bool: ...
-    @property
-    def lastmove_to(self) -> Square | None: ...
-    @property
-    def king_sq(self) -> Square: ...
-    @property
-    def fen(self) -> str: ...
-    @property
-    def pgn(self) -> str: ...
-
-    def clock(self, c: Color) -> Time: ...

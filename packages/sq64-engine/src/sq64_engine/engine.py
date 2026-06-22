@@ -13,6 +13,7 @@ MATE_VALUE = 32000
 MATE_BOUND = 30000
 
 class Bound(IntEnum):
+    """Indicates the type of score stored in the transposition table entry."""
     EXACT = 0
     LOWER = 1
     UPPER = 2
@@ -24,12 +25,14 @@ class Bound(IntEnum):
         return False
 
 class Entry(NamedTuple):
+    """Transposition table entry."""
     depth: int
     score: int
     flag: Bound
     move: Move | None
 
 class Info(NamedTuple):
+    """Information about the current search iteration."""
     score: int
     pv: list[Move]
     nodes: int
@@ -38,6 +41,7 @@ class Info(NamedTuple):
 class AbortSearchError(Exception): ...
 
 class Engine:
+    """A simple chess engine implementing a negamax search."""
     tt: dict[int, Entry]
     killers: list[Move | None]
     nodes: int
@@ -53,7 +57,9 @@ class Engine:
         self.tt.clear()
 
     def should_abort(self) -> None:
+        """Checks if the search should be aborted based on the stop event and nodes count."""
         if self.nodes & 127 == 0 and self.stop.is_set():
+            logging.debug("search aborted")
             raise AbortSearchError()
 
     def order_moves(
@@ -82,7 +88,6 @@ class Engine:
         self.should_abort()
 
         stand_pat = pos.relscore
-
         if stand_pat >= beta: return beta
         if alpha < stand_pat: alpha = stand_pat
 
@@ -138,7 +143,10 @@ class Engine:
         pos.unplay(state)
         return score >= beta
 
-    def _score_move(self, pos: Position, move: Move, depth: int, alpha: int, beta: int, ply: int, legal_moves: int, is_check: bool) -> int:
+    def _score_move(
+        self, pos: Position, move: Move, depth: int, alpha: int, beta: int, ply: int, legal_moves: int,
+        *, is_check: bool,
+    ) -> int:
         if legal_moves == 1:
             return -self.negamax(pos, depth - 1, -beta, -alpha, ply + 1, can_null=True)
 
@@ -167,7 +175,9 @@ class Engine:
                 continue
 
             legal_moves += 1
-            score = self._score_move(pos, move, depth, alpha, beta, ply, legal_moves, is_check)
+            score = self._score_move(
+                pos, move, depth, alpha, beta, ply, legal_moves, is_check=is_check,
+            )
             pos.unplay(state)
 
             if score > best:
@@ -192,6 +202,7 @@ class Engine:
         *,
         can_null: bool = True,
     ) -> int:
+        """Performs a negamax search with alpha-beta pruning and quiescence search."""
         self.nodes += 1
         self.should_abort()
 
@@ -227,6 +238,7 @@ class Engine:
     def pv(
         self, pos: Position, max_depth: int = 20, seen: set[int] | None = None,
     ) -> list[Move]:
+        """Returns the principal variation line from the given position up to the specified maximum depth."""
         if max_depth <= 0: return []
         seen = seen or set()
 
@@ -244,23 +256,22 @@ class Engine:
         return line
 
     def go(self, pos: Position, stop: Event) -> Iterator[Info]:
+        """Performs iterative deepening search on the given position, yielding information about each completed iteration until the stop event is set."""
         pos_cp = pos.copy()
         self.nodes = 0
         self.killers = [None] * 256
         self.stop = stop
 
         t0 = perf_counter()
-        score = 0
 
         for depth in range(1, 100):
             try:
                 score = self.negamax(
                     pos_cp, depth, -MATE_VALUE * 2, +MATE_VALUE * 2, ply=0,
                 )
-                dt = perf_counter() - t0
-                logging.debug(f"depth {depth} score {score} nps {int(self.nodes / dt)}")
-                yield Info(score, self.pv(pos_cp, max_depth=depth), self.nodes, dt)
-
             except AbortSearchError:
-                logging.debug("search aborted after %.2f seconds", perf_counter() - t0)
-                return
+                break
+
+            dt = perf_counter() - t0
+            logging.debug(f"depth {depth} score {score} nps {int(self.nodes / dt)}")
+            yield Info(score, self.pv(pos_cp, max_depth=depth), self.nodes, dt)

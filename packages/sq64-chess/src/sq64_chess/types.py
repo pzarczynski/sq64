@@ -6,6 +6,7 @@ def color_name(c: Color) -> str: return "white" if c else "black"
 
 
 class Square(int):  # square in 0x88 representation
+    """Represents a square on the chessboard using 0x88 encoding."""
     @property
     def file(self) -> int: return self & 7
     @property
@@ -24,6 +25,8 @@ class Square(int):  # square in 0x88 representation
     @classmethod
     def make(cls, f: int, r: int) -> "Square": return cls(r << 4 | f)
 
+    def rotate(self, orient: Color) -> "Square": return Square(0x77 - self) if orient else self
+
     def __bool__(self) -> bool: return self.valid
     def __add__(self, other: int) -> "Square": return Square(int(self) + other)
     def __sub__(self, other: int) -> "Square": return Square(int(self) - other)
@@ -31,6 +34,7 @@ class Square(int):  # square in 0x88 representation
 
 
 class PieceType(IntEnum):
+    """Represents the type of a chess piece (pawn, knight, bishop, rook, queen, king)."""
     NONE   = 0
     PAWN   = 1
     KNIGHT = 2
@@ -54,6 +58,7 @@ class PieceType(IntEnum):
 Direction = int
 
 class Piece(IntEnum):
+    """Represents a chess piece."""
     NONE = 0
 
     BLACK_PAWN   = PieceType.PAWN   << 1
@@ -92,26 +97,31 @@ class Piece(IntEnum):
         return cls.make(PieceType.frm_char(char), char.isupper())
 
     def can_promote(self, to: Square) -> bool:
+        """Returns True if this piece can promote by moving to the given square."""
         return self.type == PieceType.PAWN and to.rank in (0, 7)
 
     def __str__(self) -> str: return self.char
 
 
 class Move(NamedTuple):
+    """Represents a chess move."""
     frm: Square
     to: Square
     promo: PieceType = PieceType.NONE
 
     @property
     def delta(self) -> int:
+        """Returns the difference between the destination and origin squares."""
         return abs(self.to - self.frm)
 
     @property
     def between(self) -> Square:
+        """Returns the square between the origin and destination squares."""
         return Square((self.frm + self.to) >> 1)
 
     @classmethod
     def parse(cls, s: str) -> "Move":
+        """Parses a move from a string in long algebraic notation (e.g., "e2e4" or "e7e8q")."""
         frm = Square.frm_str(s[:2])
         to  = Square.frm_str(s[2:4])
         promo = PieceType.frm_char(s[4].lower()) if len(s) > 4 else PieceType.NONE
@@ -130,6 +140,7 @@ class Move(NamedTuple):
 
 
 class CastlRights(IntFlag):
+    """Represents the castling rights for both players using bit flags."""
     NONE     = 0
     WHITE_KS = 1 << 0
     WHITE_QS = 1 << 1
